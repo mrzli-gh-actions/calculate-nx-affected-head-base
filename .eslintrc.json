@@ -20,6 +20,13 @@
       "@typescript-eslint/ban-ts-comment": "error",
       "camelcase": "off",
       "@typescript-eslint/consistent-type-assertions": "error",
+      "@typescript-eslint/consistent-type-imports": [
+        "error",
+        {
+          "prefer": "type-imports",
+          "disallowTypeAnnotations": false
+        }
+      ],
       "@typescript-eslint/explicit-function-return-type": ["error", {"allowExpressions": true}],
       "@typescript-eslint/func-call-spacing": ["error", "never"],
       "@typescript-eslint/no-array-constructor": "error",

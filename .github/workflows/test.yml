@@ -2,9 +2,10 @@ name: 'build-test'
 on: # rebuild any PRs and main branch changes
   pull_request:
   push:
-    branches:
-      - main
-      - 'releases/*'
+#    branches:
+#      - master
+#      - 'releases/*'
+  workflow_dispatch:
 
 jobs:
   build: # make sure build/ci work properly
@@ -19,6 +20,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: ./
         with:
-          milliseconds: 1000
+          fetch-depth: 0
+      - uses: ./
+        id: set-shas
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          main-branch-name: master
+      - name: Display Output
+        env:
+          NX_BASE: ${{ steps.set-shas.outputs.base }}
+          NX_HEAD: ${{ steps.set-shas.outputs.head }}
+        run: |
+          echo "base: $NX_BASE"
+          echo "head: $NX_HEAD"
+
+# 12

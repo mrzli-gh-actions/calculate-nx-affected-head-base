@@ -1,11 +1,15 @@
-name: 'Your name here'
-description: 'Provide a description here'
-author: 'Your name or organization here'
+name: 'calculate-nx-affected-head-base'
+description: 'Calculate shas for NX affected command.'
+author: 'goran.mrzljak@gmail.com'
 inputs:
-  milliseconds: # change this
+  main-branch-name:
     required: true
-    description: 'input description here'
-    default: 'default value if applicable'
+    description: 'The name of the main branch of your repo, e.g `master`'
+outputs:
+  base:
+    description: 'The value intended to be used in `nx affected --base`'
+  head:
+    description: 'The value intended to be used in `nx affected --head`'
 runs:
   using: 'node12'
   main: 'dist/index.js'

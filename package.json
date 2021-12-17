@@ -15,7 +15,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/actions/typescript-action.git"
+    "url": "git+https://github.com/mrzli/calculate-nx-affected-head-base.git"
   },
   "keywords": [
     "actions",
@@ -25,7 +25,10 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@actions/core": "1.6.0"
+    "@actions/core": "1.6.0",
+    "@actions/github": "5.0.0",
+    "@octokit/action": "3.18.0",
+    "type-fest": "2.8.0"
   },
   "devDependencies": {
     "@types/node": "16.11.14",
