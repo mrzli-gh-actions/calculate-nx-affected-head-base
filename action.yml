@@ -1,4 +1,4 @@
-name: 'calculate-nx-affected-head-base'
+name: 'gh-action-calculate-nx-affected-head-base'
 description: 'Calculate shas for NX affected command.'
 author: 'goran.mrzljak@gmail.com'
 inputs:
