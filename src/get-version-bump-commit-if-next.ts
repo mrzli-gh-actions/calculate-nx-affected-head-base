@@ -1,3 +1,4 @@
+import * as core from '@actions/core';
 import { executeCommandAndReturnSimpleValue } from './utils';
 
 export async function getProperBaseCommit(
@@ -6,15 +7,32 @@ export async function getProperBaseCommit(
 ): Promise<string> {
   const earliestChildSha = await getEarliestChildOfCommit(sha);
   if (!earliestChildSha) {
+    core.debug(
+      `Failed to find a child for commit ${sha}, for which this workflow was last successfully run.`
+    );
     return sha;
   }
+
+  core.debug(
+    `Found a child for commit ${sha}, for which this workflow was last successfully run. Child commit SHA: ${earliestChildSha}`
+  );
 
   const isCommitVersionBump = await isVersionBumpCommit(
     earliestChildSha,
     versionBumpSummaryMatcher
   );
 
-  return isCommitVersionBump ? earliestChildSha : sha;
+  if (isCommitVersionBump) {
+    core.debug(
+      `Commit ${earliestChildSha} is a version bump commit. It will therefore be set as a base commit for 'nx affected' comparison.`
+    );
+    return earliestChildSha;
+  } else {
+    core.debug(
+      `Commit ${earliestChildSha} is a not version bump commit. It will therefore not be set as a base commit for 'nx affected' comparison. RegExp used for matching version bump commit is '${versionBumpSummaryMatcher}'`
+    );
+    return sha;
+  }
 }
 
 export async function getEarliestChildOfCommit(

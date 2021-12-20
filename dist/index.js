@@ -6,6 +6,25 @@ require('./sourcemap-register.js');/******/ (() => { // webpackBootstrap
 
 "use strict";
 
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -17,15 +36,25 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.isVersionBumpCommit = exports.getEarliestChildOfCommit = exports.getProperBaseCommit = void 0;
+const core = __importStar(__nccwpck_require__(2186));
 const utils_1 = __nccwpck_require__(918);
 function getProperBaseCommit(sha, versionBumpSummaryMatcher) {
     return __awaiter(this, void 0, void 0, function* () {
         const earliestChildSha = yield getEarliestChildOfCommit(sha);
         if (!earliestChildSha) {
+            core.debug(`Failed to find a child for commit ${sha}, for which this workflow was last successfully run.`);
             return sha;
         }
+        core.debug(`Found a child for commit ${sha}, for which this workflow was last successfully run. Child commit SHA: ${earliestChildSha}`);
         const isCommitVersionBump = yield isVersionBumpCommit(earliestChildSha, versionBumpSummaryMatcher);
-        return isCommitVersionBump ? earliestChildSha : sha;
+        if (isCommitVersionBump) {
+            core.debug(`Commit ${earliestChildSha} is a version bump commit. It will therefore be set as a base commit for 'nx affected' comparison.`);
+            return earliestChildSha;
+        }
+        else {
+            core.debug(`Commit ${earliestChildSha} is a not version bump commit. It will therefore not be set as a base commit for 'nx affected' comparison. RegExp used for matching version bump commit is '${versionBumpSummaryMatcher}'`);
+            return sha;
+        }
     });
 }
 exports.getProperBaseCommit = getProperBaseCommit;
@@ -108,7 +137,14 @@ function run() {
         const { runId, repo, owner } = (0, utils_1.getGithubContext)();
         const mainBranchName = core.getInput('main-branch-name');
         const versionBumpCommitMessageSummaryMatcher = core.getInput('version-bump-commit-message-summary-matcher');
-        const currentBranchNameResult = (0, utils_1.getCurrentBranchName)(process.env.GITHUB_REF);
+        core.debug('Input parameters:');
+        core.debug(JSON.stringify({
+            'main-branch-name': mainBranchName,
+            'version-bump-commit-message-summary-matcher': versionBumpCommitMessageSummaryMatcher,
+        }));
+        const currentBranchRef = process.env.GITHUB_REF;
+        core.debug(`Current branch ref: ${currentBranchRef}`);
+        const currentBranchNameResult = (0, utils_1.getCurrentBranchName)(currentBranchRef);
         if (currentBranchNameResult.errorMessage !== undefined) {
             core.setFailed(currentBranchNameResult.errorMessage);
             return;
@@ -121,6 +157,8 @@ function run() {
             return;
         }
         const baseSha = baseShaResult.value;
+        core.debug('Output parameters:');
+        core.debug(JSON.stringify({ base: baseSha, head: headSha }));
         core.setOutput('base', baseSha);
         core.setOutput('head', headSha);
     });
@@ -129,26 +167,31 @@ function findBaseSha(runId, owner, repo, mainBranchName, currentBranchName, vers
     return __awaiter(this, void 0, void 0, function* () {
         const isCurrentBranchMain = currentBranchName === mainBranchName;
         if (isCurrentBranchMain) {
-            return findBaseShaForMainBranch(runId, owner, repo, mainBranchName);
+            return findBaseShaForMainBranch(runId, owner, repo, mainBranchName, versionBumpCommitMessageSummaryMatcher);
         }
         else {
             const sha = (0, utils_1.executeCommandAndReturnSimpleValue)(`git merge-base origin/${mainBranchName} HEAD`);
-            const properSha = yield (0, get_version_bump_commit_if_next_1.getProperBaseCommit)(sha, versionBumpCommitMessageSummaryMatcher);
+            core.debug(`Currently not on ${mainBranchName} branch.`);
+            core.debug(`Base sha set to sha where this feature branch was branched from ${mainBranchName}. SHA: ${sha}`);
             return {
-                value: properSha,
+                value: sha,
             };
         }
     });
 }
-function findBaseShaForMainBranch(runId, owner, repo, mainBranchName) {
+function findBaseShaForMainBranch(runId, owner, repo, mainBranchName, versionBumpCommitMessageSummaryMatcher) {
     return __awaiter(this, void 0, void 0, function* () {
+        core.debug(`Currently on ${mainBranchName} branch.`);
         const lastSuccessfulCommitResult = yield findLastSuccessfulCommitSha(runId, owner, repo, mainBranchName);
         if (lastSuccessfulCommitResult.errorMessage !== undefined) {
             return lastSuccessfulCommitResult;
         }
         const sha = lastSuccessfulCommitResult.value;
         if (sha) {
-            return { value: sha };
+            core.debug(`Last commit for which this workflow was successfully run found with SHA: ${sha}`);
+            const properSha = yield (0, get_version_bump_commit_if_next_1.getProperBaseCommit)(sha, versionBumpCommitMessageSummaryMatcher);
+            core.debug(`Actual base commit to be used for 'nx affected' will be: ${properSha}`);
+            return { value: properSha };
         }
         else {
             core.warning(`WARNING: Unable to find a successful workflow run on 'origin/${mainBranchName}'`);

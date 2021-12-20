@@ -19,7 +19,18 @@ async function run(): Promise<void> {
     'version-bump-commit-message-summary-matcher'
   );
 
-  const currentBranchNameResult = getCurrentBranchName(process.env.GITHUB_REF);
+  core.debug('Input parameters:');
+  core.debug(
+    JSON.stringify({
+      'main-branch-name': mainBranchName,
+      'version-bump-commit-message-summary-matcher':
+        versionBumpCommitMessageSummaryMatcher,
+    })
+  );
+
+  const currentBranchRef = process.env.GITHUB_REF;
+  core.debug(`Current branch ref: ${currentBranchRef}`);
+  const currentBranchNameResult = getCurrentBranchName(currentBranchRef);
 
   if (currentBranchNameResult.errorMessage !== undefined) {
     core.setFailed(currentBranchNameResult.errorMessage);
@@ -46,6 +57,9 @@ async function run(): Promise<void> {
 
   const baseSha = baseShaResult.value;
 
+  core.debug('Output parameters:');
+  core.debug(JSON.stringify({ base: baseSha, head: headSha }));
+
   core.setOutput('base', baseSha);
   core.setOutput('head', headSha);
 }
@@ -60,17 +74,23 @@ async function findBaseSha(
 ): Promise<ResultOrErrorMessage<string>> {
   const isCurrentBranchMain = currentBranchName === mainBranchName;
   if (isCurrentBranchMain) {
-    return findBaseShaForMainBranch(runId, owner, repo, mainBranchName);
+    return findBaseShaForMainBranch(
+      runId,
+      owner,
+      repo,
+      mainBranchName,
+      versionBumpCommitMessageSummaryMatcher
+    );
   } else {
     const sha = executeCommandAndReturnSimpleValue(
       `git merge-base origin/${mainBranchName} HEAD`
     );
-    const properSha = await getProperBaseCommit(
-      sha,
-      versionBumpCommitMessageSummaryMatcher
+    core.debug(`Currently not on ${mainBranchName} branch.`);
+    core.debug(
+      `Base sha set to sha where this feature branch was branched from ${mainBranchName}. SHA: ${sha}`
     );
     return {
-      value: properSha,
+      value: sha,
     };
   }
 }
@@ -79,8 +99,11 @@ async function findBaseShaForMainBranch(
   runId: number,
   owner: string,
   repo: string,
-  mainBranchName: string
+  mainBranchName: string,
+  versionBumpCommitMessageSummaryMatcher: string
 ): Promise<ResultOrErrorMessage<string>> {
+  core.debug(`Currently on ${mainBranchName} branch.`);
+
   const lastSuccessfulCommitResult = await findLastSuccessfulCommitSha(
     runId,
     owner,
@@ -94,7 +117,18 @@ async function findBaseShaForMainBranch(
 
   const sha = lastSuccessfulCommitResult.value;
   if (sha) {
-    return { value: sha };
+    core.debug(
+      `Last commit for which this workflow was successfully run found with SHA: ${sha}`
+    );
+    const properSha = await getProperBaseCommit(
+      sha,
+      versionBumpCommitMessageSummaryMatcher
+    );
+    core.debug(
+      `Actual base commit to be used for 'nx affected' will be: ${properSha}`
+    );
+
+    return { value: properSha };
   } else {
     core.warning(
       `WARNING: Unable to find a successful workflow run on 'origin/${mainBranchName}'`
