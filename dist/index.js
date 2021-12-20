@@ -1,6 +1,67 @@
 require('./sourcemap-register.js');/******/ (() => { // webpackBootstrap
 /******/ 	var __webpack_modules__ = ({
 
+/***/ 3545:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.isVersionBumpCommit = exports.getEarliestChildOfCommit = exports.getProperBaseCommit = void 0;
+const utils_1 = __nccwpck_require__(918);
+function getProperBaseCommit(sha, versionBumpSummaryMatcher) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const earliestChildSha = yield getEarliestChildOfCommit(sha);
+        if (!earliestChildSha) {
+            return sha;
+        }
+        const isCommitVersionBump = yield isVersionBumpCommit(earliestChildSha, versionBumpSummaryMatcher);
+        return isCommitVersionBump ? earliestChildSha : sha;
+    });
+}
+exports.getProperBaseCommit = getProperBaseCommit;
+function getEarliestChildOfCommit(sha) {
+    return __awaiter(this, void 0, void 0, function* () {
+        // rev-list
+        // - --reverse - list from oldest to the newest
+        // - HEAD      - list commits reachable from HEAD
+        // - ^${sha}   - exclude all commits reachable from 'baseSha' (baseSha is also excluded)
+        // --------------------
+        // the above will list all the commits between HEAD (inclusive) and 'baseSha' (exclusive)
+        // since the order is reverse
+        const revParseResult = (0, utils_1.executeCommandAndReturnSimpleValue)(`git rev-list --reverse --parents HEAD ^${sha}`);
+        const lines = revParseResult.split('\n');
+        for (const line of lines) {
+            const [child, ...parents] = line.split(' ');
+            if (parents.some((p) => p === sha)) {
+                return child;
+            }
+        }
+        return undefined;
+    });
+}
+exports.getEarliestChildOfCommit = getEarliestChildOfCommit;
+function isVersionBumpCommit(sha, versionBumpSummaryMatcher) {
+    return __awaiter(this, void 0, void 0, function* () {
+        // get first line (subject) of the commit message for specified sha
+        const summary = (0, utils_1.executeCommandAndReturnSimpleValue)(`git log --format=%s --max-count=1 ${sha} | cat`);
+        return !!summary.match(versionBumpSummaryMatcher);
+    });
+}
+exports.isVersionBumpCommit = isVersionBumpCommit;
+
+
+/***/ }),
+
 /***/ 3109:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -39,12 +100,14 @@ const core = __importStar(__nccwpck_require__(2186));
 const utils_1 = __nccwpck_require__(918);
 const action_1 = __nccwpck_require__(1231);
 const child_process_1 = __nccwpck_require__(2081);
+const get_version_bump_commit_if_next_1 = __nccwpck_require__(3545);
 // eslint-disable-next-line github/no-then
 run().then();
 function run() {
     return __awaiter(this, void 0, void 0, function* () {
         const { runId, repo, owner } = (0, utils_1.getGithubContext)();
         const mainBranchName = core.getInput('main-branch-name');
+        const versionBumpCommitMessageSummaryMatcher = core.getInput('version-bump-commit-message-summary-matcher');
         const currentBranchNameResult = (0, utils_1.getCurrentBranchName)(process.env.GITHUB_REF);
         if (currentBranchNameResult.errorMessage !== undefined) {
             core.setFailed(currentBranchNameResult.errorMessage);
@@ -52,7 +115,7 @@ function run() {
         }
         const currentBranchName = currentBranchNameResult.value;
         const headSha = (0, utils_1.executeCommandAndReturnSimpleValue)('git rev-parse HEAD');
-        const baseShaResult = yield findBaseSha(runId, owner, repo, mainBranchName, currentBranchName);
+        const baseShaResult = yield findBaseSha(runId, owner, repo, mainBranchName, currentBranchName, versionBumpCommitMessageSummaryMatcher);
         if (baseShaResult.errorMessage !== undefined) {
             core.setFailed(baseShaResult.errorMessage);
             return;
@@ -62,7 +125,7 @@ function run() {
         core.setOutput('head', headSha);
     });
 }
-function findBaseSha(runId, owner, repo, mainBranchName, currentBranchName) {
+function findBaseSha(runId, owner, repo, mainBranchName, currentBranchName, versionBumpCommitMessageSummaryMatcher) {
     return __awaiter(this, void 0, void 0, function* () {
         const isCurrentBranchMain = currentBranchName === mainBranchName;
         if (isCurrentBranchMain) {
@@ -70,8 +133,9 @@ function findBaseSha(runId, owner, repo, mainBranchName, currentBranchName) {
         }
         else {
             const sha = (0, utils_1.executeCommandAndReturnSimpleValue)(`git merge-base origin/${mainBranchName} HEAD`);
+            const properSha = yield (0, get_version_bump_commit_if_next_1.getProperBaseCommit)(sha, versionBumpCommitMessageSummaryMatcher);
             return {
-                value: sha,
+                value: properSha,
             };
         }
     });

@@ -5,6 +5,9 @@ inputs:
   main-branch-name:
     required: true
     description: 'The name of the main branch of your repo, e.g `master`'
+  version-bump-commit-message-summary-matcher:
+    required: true
+    description: 'RegExp used to match version bump commit message summary (first line of commit message), so that it can be skipped in `nx affected` calculation. Example: `^chore\\(release\\): `'
 outputs:
   base:
     description: 'The value intended to be used in `nx affected --base`'

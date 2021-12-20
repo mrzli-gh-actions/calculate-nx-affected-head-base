@@ -7,6 +7,7 @@ import {
 import { Octokit } from '@octokit/action';
 import type { ResultOrErrorMessage } from './types';
 import { execSync } from 'child_process';
+import { getProperBaseCommit } from './get-version-bump-commit-if-next';
 
 // eslint-disable-next-line github/no-then
 run().then();
@@ -14,6 +15,9 @@ run().then();
 async function run(): Promise<void> {
   const { runId, repo, owner } = getGithubContext();
   const mainBranchName: string = core.getInput('main-branch-name');
+  const versionBumpCommitMessageSummaryMatcher: string = core.getInput(
+    'version-bump-commit-message-summary-matcher'
+  );
 
   const currentBranchNameResult = getCurrentBranchName(process.env.GITHUB_REF);
 
@@ -31,7 +35,8 @@ async function run(): Promise<void> {
     owner,
     repo,
     mainBranchName,
-    currentBranchName
+    currentBranchName,
+    versionBumpCommitMessageSummaryMatcher
   );
 
   if (baseShaResult.errorMessage !== undefined) {
@@ -50,7 +55,8 @@ async function findBaseSha(
   owner: string,
   repo: string,
   mainBranchName: string,
-  currentBranchName: string
+  currentBranchName: string,
+  versionBumpCommitMessageSummaryMatcher: string
 ): Promise<ResultOrErrorMessage<string>> {
   const isCurrentBranchMain = currentBranchName === mainBranchName;
   if (isCurrentBranchMain) {
@@ -59,8 +65,12 @@ async function findBaseSha(
     const sha = executeCommandAndReturnSimpleValue(
       `git merge-base origin/${mainBranchName} HEAD`
     );
+    const properSha = await getProperBaseCommit(
+      sha,
+      versionBumpCommitMessageSummaryMatcher
+    );
     return {
-      value: sha,
+      value: properSha,
     };
   }
 }
