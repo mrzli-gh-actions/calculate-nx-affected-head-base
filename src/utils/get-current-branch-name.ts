@@ -1,19 +1,4 @@
-import * as github from '@actions/github';
-import type { GithubContext, ResultOrErrorMessage } from './types';
-import { execSync } from 'child_process';
-
-export function getGithubContext(): GithubContext {
-  const {
-    runId,
-    repo: { repo, owner },
-  } = github.context;
-
-  return {
-    runId,
-    repo,
-    owner,
-  };
-}
+import type { ResultOrErrorMessage } from '../types/types';
 
 const REF_TO_BRANCH_NAME_REGEX = /^refs\/heads\/(.+)$/;
 
@@ -37,8 +22,4 @@ export function getCurrentBranchName(
   return {
     value: match[1],
   };
-}
-
-export function executeCommandAndReturnSimpleValue(command: string): string {
-  return execSync(command, { encoding: 'utf-8' }).trim();
 }

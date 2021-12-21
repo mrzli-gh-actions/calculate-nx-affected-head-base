@@ -1,7 +1,87 @@
 require('./sourcemap-register.js');/******/ (() => { // webpackBootstrap
 /******/ 	var __webpack_modules__ = ({
 
-/***/ 3545:
+/***/ 5734:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.GitApiImpl = void 0;
+const child_process_1 = __nccwpck_require__(2081);
+class GitApiImpl {
+    getHeadCommitSha() {
+        return __awaiter(this, void 0, void 0, function* () {
+            return executeCommandAndReturnSimpleValue('git rev-parse HEAD');
+        });
+    }
+    getHeadPreviousCommitSha() {
+        return __awaiter(this, void 0, void 0, function* () {
+            return executeCommandAndReturnSimpleValue('git rev-parse HEAD~1');
+        });
+    }
+    getHeadToMainBranchCommonAncestorSha(mainBranchName) {
+        return __awaiter(this, void 0, void 0, function* () {
+            return executeCommandAndReturnSimpleValue(`git merge-base origin/${mainBranchName} HEAD`);
+        });
+    }
+    getEarliestChildShaOfCommit(parentSha) {
+        return __awaiter(this, void 0, void 0, function* () {
+            // rev-list
+            // - --reverse     - list from oldest to the newest
+            // - HEAD          - list commits reachable from HEAD
+            // - ^${parentSha} - exclude all commits reachable from 'baseSha' (baseSha is also excluded)
+            // --------------------
+            // the above will list all the commits between HEAD (inclusive) and 'baseSha' (exclusive)
+            // since the order is reverse
+            const revParseResult = executeCommandAndReturnSimpleValue(`git rev-list --reverse --parents HEAD ^${parentSha}`);
+            const lines = revParseResult.split('\n');
+            for (const line of lines) {
+                const [child, ...parents] = line.split(' ');
+                if (parents.some((p) => p === parentSha)) {
+                    return child;
+                }
+            }
+            return undefined;
+        });
+    }
+    isCommitSummaryMatch(sha, summaryMatcher) {
+        return __awaiter(this, void 0, void 0, function* () {
+            // get first line (subject) of the commit message for specified sha
+            const summary = executeCommandAndReturnSimpleValue(`git log --format=%s --max-count=1 ${sha} | cat`);
+            return !!summary.match(summaryMatcher);
+        });
+    }
+    commitExists(sha) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                (0, child_process_1.execSync)(`git cat-file -e ${sha} 2> /dev/null`);
+                return true;
+            }
+            catch (_a) {
+                return false;
+            }
+        });
+    }
+}
+exports.GitApiImpl = GitApiImpl;
+function executeCommandAndReturnSimpleValue(command) {
+    return (0, child_process_1.execSync)(command, { encoding: 'utf-8' }).trim();
+}
+
+
+/***/ }),
+
+/***/ 6881:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -25,6 +105,47 @@ var __importStar = (this && this.__importStar) || function (mod) {
     __setModuleDefault(result, mod);
     return result;
 };
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.GithubActionsApiImpl = void 0;
+const core = __importStar(__nccwpck_require__(2186));
+const github = __importStar(__nccwpck_require__(5438));
+class GithubActionsApiImpl {
+    getGithubContext() {
+        const { runId, repo: { repo, owner }, } = github.context;
+        return {
+            runId,
+            repo,
+            owner,
+        };
+    }
+    getInputs() {
+        const mainBranchName = core.getInput('main-branch-name');
+        const versionBumpCommitMessageSummaryMatcher = core.getInput('version-bump-commit-message-summary-matcher');
+        return {
+            mainBranchName,
+            versionBumpCommitMessageSummaryMatcher,
+        };
+    }
+    setOutputs(outputs) {
+        const keys = Object.keys(outputs);
+        for (const key of keys) {
+            core.setOutput(key, outputs[key]);
+        }
+    }
+    setFailed(message) {
+        core.setFailed(message);
+    }
+}
+exports.GithubActionsApiImpl = GithubActionsApiImpl;
+
+
+/***/ }),
+
+/***/ 2354:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -35,58 +156,83 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.isVersionBumpCommit = exports.getEarliestChildOfCommit = exports.getProperBaseCommit = void 0;
+exports.GithubApiImpl = void 0;
+const action_1 = __nccwpck_require__(1231);
+class GithubApiImpl {
+    constructor() {
+        this.octokit = new action_1.Octokit();
+    }
+    getWorkflowId(runId, owner, repo, branch) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const runResult = yield this.octokit.request(`GET /repos/${owner}/${repo}/actions/runs/${runId}`, {
+                owner,
+                repo,
+                branch,
+                run_id: runId,
+            });
+            return runResult.data.workflow_id;
+        });
+    }
+    getWorkflowRunCommitShas(workflowId, owner, repo, branch) {
+        return __awaiter(this, void 0, void 0, function* () {
+            // fetch all workflow runs on a given repo/branch/workflow with push and success
+            const runsResult = yield this.octokit.request(`GET /repos/${owner}/${repo}/actions/workflows/${workflowId}/runs`, {
+                owner,
+                repo,
+                branch,
+                workflow_id: workflowId,
+                event: 'push',
+                status: 'success',
+            });
+            const runs = runsResult.data.workflow_runs;
+            return runs.map((r) => r.head_sha);
+        });
+    }
+}
+exports.GithubApiImpl = GithubApiImpl;
+
+
+/***/ }),
+
+/***/ 5840:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.LoggerImpl = void 0;
 const core = __importStar(__nccwpck_require__(2186));
-const utils_1 = __nccwpck_require__(918);
-function getProperBaseCommit(sha, versionBumpSummaryMatcher) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const earliestChildSha = yield getEarliestChildOfCommit(sha);
-        if (!earliestChildSha) {
-            core.debug(`Failed to find a child for commit ${sha}, for which this workflow was last successfully run.`);
-            return sha;
-        }
-        core.debug(`Found a child for commit ${sha}, for which this workflow was last successfully run. Child commit SHA: ${earliestChildSha}`);
-        const isCommitVersionBump = yield isVersionBumpCommit(earliestChildSha, versionBumpSummaryMatcher);
-        if (isCommitVersionBump) {
-            core.debug(`Commit ${earliestChildSha} is a version bump commit. It will therefore be set as a base commit for 'nx affected' comparison.`);
-            return earliestChildSha;
-        }
-        else {
-            core.debug(`Commit ${earliestChildSha} is a not version bump commit. It will therefore not be set as a base commit for 'nx affected' comparison. RegExp used for matching version bump commit is '${versionBumpSummaryMatcher}'`);
-            return sha;
-        }
-    });
+class LoggerImpl {
+    debug(message) {
+        core.debug(message);
+    }
+    warning(message) {
+        core.warning(message);
+    }
+    error(message) {
+        core.error(message);
+    }
 }
-exports.getProperBaseCommit = getProperBaseCommit;
-function getEarliestChildOfCommit(sha) {
-    return __awaiter(this, void 0, void 0, function* () {
-        // rev-list
-        // - --reverse - list from oldest to the newest
-        // - HEAD      - list commits reachable from HEAD
-        // - ^${sha}   - exclude all commits reachable from 'baseSha' (baseSha is also excluded)
-        // --------------------
-        // the above will list all the commits between HEAD (inclusive) and 'baseSha' (exclusive)
-        // since the order is reverse
-        const revParseResult = (0, utils_1.executeCommandAndReturnSimpleValue)(`git rev-list --reverse --parents HEAD ^${sha}`);
-        const lines = revParseResult.split('\n');
-        for (const line of lines) {
-            const [child, ...parents] = line.split(' ');
-            if (parents.some((p) => p === sha)) {
-                return child;
-            }
-        }
-        return undefined;
-    });
-}
-exports.getEarliestChildOfCommit = getEarliestChildOfCommit;
-function isVersionBumpCommit(sha, versionBumpSummaryMatcher) {
-    return __awaiter(this, void 0, void 0, function* () {
-        // get first line (subject) of the commit message for specified sha
-        const summary = (0, utils_1.executeCommandAndReturnSimpleValue)(`git log --format=%s --max-count=1 ${sha} | cat`);
-        return !!summary.match(versionBumpSummaryMatcher);
-    });
-}
-exports.isVersionBumpCommit = isVersionBumpCommit;
+exports.LoggerImpl = LoggerImpl;
 
 
 /***/ }),
@@ -96,25 +242,6 @@ exports.isVersionBumpCommit = isVersionBumpCommit;
 
 "use strict";
 
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -125,90 +252,98 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-const core = __importStar(__nccwpck_require__(2186));
-const utils_1 = __nccwpck_require__(918);
-const action_1 = __nccwpck_require__(1231);
-const child_process_1 = __nccwpck_require__(2081);
-const get_version_bump_commit_if_next_1 = __nccwpck_require__(3545);
+const git_api_1 = __nccwpck_require__(5734);
+const github_actions_api_1 = __nccwpck_require__(6881);
+const github_api_1 = __nccwpck_require__(2354);
+const logger_1 = __nccwpck_require__(5840);
+const get_current_branch_name_1 = __nccwpck_require__(8176);
+const get_proper_base_commit_1 = __nccwpck_require__(5695);
+const INFRASTRUCTURE = {
+    logger: new logger_1.LoggerImpl(),
+    githubActionsApi: new github_actions_api_1.GithubActionsApiImpl(),
+    githubApi: new github_api_1.GithubApiImpl(),
+    gitApi: new git_api_1.GitApiImpl(),
+};
 // eslint-disable-next-line github/no-then
-run().then();
-function run() {
+run(INFRASTRUCTURE).then();
+function run(infrastructure) {
     return __awaiter(this, void 0, void 0, function* () {
-        const { runId, repo, owner } = (0, utils_1.getGithubContext)();
-        const mainBranchName = core.getInput('main-branch-name');
-        const versionBumpCommitMessageSummaryMatcher = core.getInput('version-bump-commit-message-summary-matcher');
-        core.debug('Input parameters:');
-        core.debug(JSON.stringify({
+        const { runId, repo, owner } = infrastructure.githubActionsApi.getGithubContext();
+        const { mainBranchName, versionBumpCommitMessageSummaryMatcher } = infrastructure.githubActionsApi.getInputs();
+        infrastructure.logger.debug('Input parameters:');
+        infrastructure.logger.debug(JSON.stringify({
             'main-branch-name': mainBranchName,
             'version-bump-commit-message-summary-matcher': versionBumpCommitMessageSummaryMatcher,
         }));
         const currentBranchRef = process.env.GITHUB_REF;
-        core.debug(`Current branch ref: ${currentBranchRef}`);
-        const currentBranchNameResult = (0, utils_1.getCurrentBranchName)(currentBranchRef);
+        infrastructure.logger.debug(`Current branch ref: ${currentBranchRef}`);
+        const currentBranchNameResult = (0, get_current_branch_name_1.getCurrentBranchName)(currentBranchRef);
         if (currentBranchNameResult.errorMessage !== undefined) {
-            core.setFailed(currentBranchNameResult.errorMessage);
+            infrastructure.githubActionsApi.setFailed(currentBranchNameResult.errorMessage);
             return;
         }
         const currentBranchName = currentBranchNameResult.value;
-        const headSha = (0, utils_1.executeCommandAndReturnSimpleValue)('git rev-parse HEAD');
-        const baseShaResult = yield findBaseSha(runId, owner, repo, mainBranchName, currentBranchName, versionBumpCommitMessageSummaryMatcher);
+        const headSha = yield infrastructure.gitApi.getHeadCommitSha();
+        const baseShaResult = yield findBaseSha(infrastructure, runId, owner, repo, mainBranchName, currentBranchName, versionBumpCommitMessageSummaryMatcher);
         if (baseShaResult.errorMessage !== undefined) {
-            core.setFailed(baseShaResult.errorMessage);
+            infrastructure.githubActionsApi.setFailed(baseShaResult.errorMessage);
             return;
         }
         const baseSha = baseShaResult.value;
-        core.debug('Output parameters:');
-        core.debug(JSON.stringify({ base: baseSha, head: headSha }));
-        core.setOutput('base', baseSha);
-        core.setOutput('head', headSha);
+        infrastructure.logger.debug('Output parameters:');
+        infrastructure.logger.debug(JSON.stringify({ base: baseSha, head: headSha }));
+        infrastructure.githubActionsApi.setOutputs({
+            base: baseSha,
+            head: headSha,
+        });
     });
 }
-function findBaseSha(runId, owner, repo, mainBranchName, currentBranchName, versionBumpCommitMessageSummaryMatcher) {
+function findBaseSha(infrastructure, runId, owner, repo, mainBranchName, currentBranchName, versionBumpCommitMessageSummaryMatcher) {
     return __awaiter(this, void 0, void 0, function* () {
         const isCurrentBranchMain = currentBranchName === mainBranchName;
         if (isCurrentBranchMain) {
-            return findBaseShaForMainBranch(runId, owner, repo, mainBranchName, versionBumpCommitMessageSummaryMatcher);
+            return findBaseShaForMainBranch(infrastructure, runId, owner, repo, mainBranchName, versionBumpCommitMessageSummaryMatcher);
         }
         else {
-            const sha = (0, utils_1.executeCommandAndReturnSimpleValue)(`git merge-base origin/${mainBranchName} HEAD`);
-            core.debug(`Currently not on ${mainBranchName} branch.`);
-            core.debug(`Base sha set to sha where this feature branch was branched from ${mainBranchName}. SHA: ${sha}`);
+            const sha = yield infrastructure.gitApi.getHeadToMainBranchCommonAncestorSha(mainBranchName);
+            infrastructure.logger.debug(`Currently not on ${mainBranchName} branch.`);
+            infrastructure.logger.debug(`Base sha set to sha where this feature branch was branched from ${mainBranchName}. SHA: ${sha}`);
             return {
                 value: sha,
             };
         }
     });
 }
-function findBaseShaForMainBranch(runId, owner, repo, mainBranchName, versionBumpCommitMessageSummaryMatcher) {
+function findBaseShaForMainBranch(infrastructure, runId, owner, repo, mainBranchName, versionBumpCommitMessageSummaryMatcher) {
     return __awaiter(this, void 0, void 0, function* () {
-        core.debug(`Currently on ${mainBranchName} branch.`);
-        const lastSuccessfulCommitResult = yield findLastSuccessfulCommitSha(runId, owner, repo, mainBranchName);
+        infrastructure.logger.debug(`Currently on ${mainBranchName} branch.`);
+        const lastSuccessfulCommitResult = yield findLastSuccessfulCommitSha(infrastructure, runId, owner, repo, mainBranchName);
         if (lastSuccessfulCommitResult.errorMessage !== undefined) {
             return lastSuccessfulCommitResult;
         }
         const sha = lastSuccessfulCommitResult.value;
         if (sha) {
-            core.debug(`Last commit for which this workflow was successfully run found with SHA: ${sha}`);
-            const properSha = yield (0, get_version_bump_commit_if_next_1.getProperBaseCommit)(sha, versionBumpCommitMessageSummaryMatcher);
-            core.debug(`Actual base commit to be used for 'nx affected' will be: ${properSha}`);
+            infrastructure.logger.debug(`Last commit for which this workflow was successfully run found with SHA: ${sha}`);
+            const properSha = yield (0, get_proper_base_commit_1.getProperBaseCommit)(infrastructure, sha, versionBumpCommitMessageSummaryMatcher);
+            infrastructure.logger.debug(`Actual base commit to be used for 'nx affected' will be: ${properSha}`);
             return { value: properSha };
         }
         else {
-            core.warning(`WARNING: Unable to find a successful workflow run on 'origin/${mainBranchName}'`);
-            core.warning(`We are therefore defaulting to use HEAD~1 on 'origin/${mainBranchName}'`);
-            const previousCommit = (0, utils_1.executeCommandAndReturnSimpleValue)('git rev-parse HEAD~1');
+            infrastructure.logger.warning(`WARNING: Unable to find a successful workflow run on 'origin/${mainBranchName}'`);
+            infrastructure.logger.warning(`We are therefore defaulting to use HEAD~1 on 'origin/${mainBranchName}'`);
+            const previousCommit = yield infrastructure.gitApi.getHeadPreviousCommitSha();
             return { value: previousCommit };
         }
     });
 }
-function findLastSuccessfulCommitSha(runId, owner, repo, branch) {
+function findLastSuccessfulCommitSha(infrastructure, runId, owner, repo, branch) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
-            const sha = yield findSuccessfulCommit(undefined, runId, owner, repo, branch);
+            const sha = yield findSuccessfulCommit(infrastructure, runId, owner, repo, branch);
             return { value: sha };
         }
         catch (error) {
-            core.error(error);
+            infrastructure.logger.error(error);
             const errorMessage = error instanceof Error ? error.message : `Unknown error`;
             return {
                 errorMessage,
@@ -216,103 +351,35 @@ function findLastSuccessfulCommitSha(runId, owner, repo, branch) {
         }
     });
 }
-function findSuccessfulCommit(workflowId, runId, owner, repo, branch) {
+function findSuccessfulCommit(infrastructure, runId, owner, repo, branch) {
     return __awaiter(this, void 0, void 0, function* () {
-        const octokit = new action_1.Octokit();
-        const finalWorkflowId = yield getWorkflowId(octokit, workflowId, runId, owner, repo, branch);
-        core.debug(`Workflow Id: ${finalWorkflowId}`);
-        // fetch all workflow runs on a given repo/branch/workflow with push and success
-        const runsResult = yield octokit.request(`GET /repos/${owner}/${repo}/actions/workflows/${finalWorkflowId}/runs`, {
-            owner,
-            repo,
-            branch,
-            workflow_id: finalWorkflowId,
-            event: 'push',
-            status: 'success',
-        });
-        core.debug('Runs result:');
-        core.debug(JSON.stringify(runsResult));
-        const runs = runsResult.data.workflow_runs;
-        const shas = runs.map((r) => r.head_sha);
-        return yield findExistingCommit(shas);
+        const finalWorkflowId = yield infrastructure.githubApi.getWorkflowId(runId, owner, repo, branch);
+        infrastructure.logger.debug(`Workflow Id: ${finalWorkflowId}`);
+        const workflowRunShas = yield infrastructure.githubApi.getWorkflowRunCommitShas(finalWorkflowId, owner, repo, branch);
+        return yield findExistingCommit(infrastructure, workflowRunShas);
     });
 }
-function getWorkflowId(octokit, workflowId, runId, owner, repo, branch) {
-    return __awaiter(this, void 0, void 0, function* () {
-        if (workflowId) {
-            return workflowId;
-        }
-        const runResult = yield octokit.request(`GET /repos/${owner}/${repo}/actions/runs/${runId}`, {
-            owner,
-            repo,
-            branch,
-            run_id: runId,
-        });
-        return runResult.data.workflow_id;
-    });
-}
-function findExistingCommit(shas) {
+function findExistingCommit(infrastructure, shas) {
     return __awaiter(this, void 0, void 0, function* () {
         for (const commitSha of shas) {
-            if (yield commitExists(commitSha)) {
+            if (yield infrastructure.gitApi.commitExists(commitSha)) {
                 return commitSha;
             }
         }
         return undefined;
     });
 }
-function commitExists(commitSha) {
-    return __awaiter(this, void 0, void 0, function* () {
-        try {
-            (0, child_process_1.execSync)(`git cat-file -e ${commitSha} 2> /dev/null`);
-            return true;
-        }
-        catch (_a) {
-            return false;
-        }
-    });
-}
 
 
 /***/ }),
 
-/***/ 918:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+/***/ 8176:
+/***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
 
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.executeCommandAndReturnSimpleValue = exports.getCurrentBranchName = exports.getGithubContext = void 0;
-const github = __importStar(__nccwpck_require__(5438));
-const child_process_1 = __nccwpck_require__(2081);
-function getGithubContext() {
-    const { runId, repo: { repo, owner }, } = github.context;
-    return {
-        runId,
-        repo,
-        owner,
-    };
-}
-exports.getGithubContext = getGithubContext;
+exports.getCurrentBranchName = void 0;
 const REF_TO_BRANCH_NAME_REGEX = /^refs\/heads\/(.+)$/;
 function getCurrentBranchName(currentBranchRef) {
     if (!currentBranchRef) {
@@ -331,10 +398,46 @@ function getCurrentBranchName(currentBranchRef) {
     };
 }
 exports.getCurrentBranchName = getCurrentBranchName;
-function executeCommandAndReturnSimpleValue(command) {
-    return (0, child_process_1.execSync)(command, { encoding: 'utf-8' }).trim();
+
+
+/***/ }),
+
+/***/ 5695:
+/***/ (function(__unused_webpack_module, exports) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getProperBaseCommit = void 0;
+function getProperBaseCommit(infrastructure, sha, versionBumpSummaryMatcher) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const earliestChildSha = yield infrastructure.gitApi.getEarliestChildShaOfCommit(sha);
+        if (!earliestChildSha) {
+            infrastructure.logger.debug(`Failed to find a child for commit ${sha}, for which this workflow was last successfully run.`);
+            return sha;
+        }
+        infrastructure.logger.debug(`Found a child for commit ${sha}, for which this workflow was last successfully run. Child commit SHA: ${earliestChildSha}`);
+        const isCommitVersionBump = yield infrastructure.gitApi.isCommitSummaryMatch(earliestChildSha, versionBumpSummaryMatcher);
+        if (isCommitVersionBump) {
+            infrastructure.logger.debug(`Commit ${earliestChildSha} is a version bump commit. It will therefore be set as a base commit for 'nx affected' comparison.`);
+            return earliestChildSha;
+        }
+        else {
+            infrastructure.logger.debug(`Commit ${earliestChildSha} is a not version bump commit. It will therefore not be set as a base commit for 'nx affected' comparison. RegExp used for matching version bump commit is '${versionBumpSummaryMatcher}'`);
+            return sha;
+        }
+    });
 }
-exports.executeCommandAndReturnSimpleValue = executeCommandAndReturnSimpleValue;
+exports.getProperBaseCommit = getProperBaseCommit;
 
 
 /***/ }),

@@ -1,26 +1,30 @@
-import * as core from '@actions/core';
-import {
-  executeCommandAndReturnSimpleValue,
-  getCurrentBranchName,
-  getGithubContext,
-} from './utils';
-import { Octokit } from '@octokit/action';
-import type { ResultOrErrorMessage } from './types';
-import { execSync } from 'child_process';
-import { getProperBaseCommit } from './get-version-bump-commit-if-next';
+import { GitApiImpl } from './infrastructure/git-api';
+import { GithubActionsApiImpl } from './infrastructure/github-actions-api';
+import { GithubApiImpl } from './infrastructure/github-api';
+import type { Infrastructure } from './infrastructure/infrastructure';
+import { LoggerImpl } from './infrastructure/logger';
+import type { ResultOrErrorMessage } from './types/types';
+import { getCurrentBranchName } from './utils/get-current-branch-name';
+import { getProperBaseCommit } from './utils/get-proper-base-commit';
+
+const INFRASTRUCTURE: Infrastructure = {
+  logger: new LoggerImpl(),
+  githubActionsApi: new GithubActionsApiImpl(),
+  githubApi: new GithubApiImpl(),
+  gitApi: new GitApiImpl(),
+};
 
 // eslint-disable-next-line github/no-then
-run().then();
+run(INFRASTRUCTURE).then();
 
-async function run(): Promise<void> {
-  const { runId, repo, owner } = getGithubContext();
-  const mainBranchName: string = core.getInput('main-branch-name');
-  const versionBumpCommitMessageSummaryMatcher: string = core.getInput(
-    'version-bump-commit-message-summary-matcher'
-  );
+async function run(infrastructure: Infrastructure): Promise<void> {
+  const { runId, repo, owner } =
+    infrastructure.githubActionsApi.getGithubContext();
+  const { mainBranchName, versionBumpCommitMessageSummaryMatcher } =
+    infrastructure.githubActionsApi.getInputs();
 
-  core.debug('Input parameters:');
-  core.debug(
+  infrastructure.logger.debug('Input parameters:');
+  infrastructure.logger.debug(
     JSON.stringify({
       'main-branch-name': mainBranchName,
       'version-bump-commit-message-summary-matcher':
@@ -29,19 +33,22 @@ async function run(): Promise<void> {
   );
 
   const currentBranchRef = process.env.GITHUB_REF;
-  core.debug(`Current branch ref: ${currentBranchRef}`);
+  infrastructure.logger.debug(`Current branch ref: ${currentBranchRef}`);
   const currentBranchNameResult = getCurrentBranchName(currentBranchRef);
 
   if (currentBranchNameResult.errorMessage !== undefined) {
-    core.setFailed(currentBranchNameResult.errorMessage);
+    infrastructure.githubActionsApi.setFailed(
+      currentBranchNameResult.errorMessage
+    );
     return;
   }
 
   const currentBranchName = currentBranchNameResult.value;
 
-  const headSha = executeCommandAndReturnSimpleValue('git rev-parse HEAD');
+  const headSha = await infrastructure.gitApi.getHeadCommitSha();
 
   const baseShaResult = await findBaseSha(
+    infrastructure,
     runId,
     owner,
     repo,
@@ -51,20 +58,23 @@ async function run(): Promise<void> {
   );
 
   if (baseShaResult.errorMessage !== undefined) {
-    core.setFailed(baseShaResult.errorMessage);
+    infrastructure.githubActionsApi.setFailed(baseShaResult.errorMessage);
     return;
   }
 
   const baseSha = baseShaResult.value;
 
-  core.debug('Output parameters:');
-  core.debug(JSON.stringify({ base: baseSha, head: headSha }));
+  infrastructure.logger.debug('Output parameters:');
+  infrastructure.logger.debug(JSON.stringify({ base: baseSha, head: headSha }));
 
-  core.setOutput('base', baseSha);
-  core.setOutput('head', headSha);
+  infrastructure.githubActionsApi.setOutputs({
+    base: baseSha,
+    head: headSha,
+  });
 }
 
 async function findBaseSha(
+  infrastructure: Infrastructure,
   runId: number,
   owner: string,
   repo: string,
@@ -75,6 +85,7 @@ async function findBaseSha(
   const isCurrentBranchMain = currentBranchName === mainBranchName;
   if (isCurrentBranchMain) {
     return findBaseShaForMainBranch(
+      infrastructure,
       runId,
       owner,
       repo,
@@ -82,11 +93,12 @@ async function findBaseSha(
       versionBumpCommitMessageSummaryMatcher
     );
   } else {
-    const sha = executeCommandAndReturnSimpleValue(
-      `git merge-base origin/${mainBranchName} HEAD`
-    );
-    core.debug(`Currently not on ${mainBranchName} branch.`);
-    core.debug(
+    const sha =
+      await infrastructure.gitApi.getHeadToMainBranchCommonAncestorSha(
+        mainBranchName
+      );
+    infrastructure.logger.debug(`Currently not on ${mainBranchName} branch.`);
+    infrastructure.logger.debug(
       `Base sha set to sha where this feature branch was branched from ${mainBranchName}. SHA: ${sha}`
     );
     return {
@@ -96,15 +108,17 @@ async function findBaseSha(
 }
 
 async function findBaseShaForMainBranch(
+  infrastructure: Infrastructure,
   runId: number,
   owner: string,
   repo: string,
   mainBranchName: string,
   versionBumpCommitMessageSummaryMatcher: string
 ): Promise<ResultOrErrorMessage<string>> {
-  core.debug(`Currently on ${mainBranchName} branch.`);
+  infrastructure.logger.debug(`Currently on ${mainBranchName} branch.`);
 
   const lastSuccessfulCommitResult = await findLastSuccessfulCommitSha(
+    infrastructure,
     runId,
     owner,
     repo,
@@ -117,34 +131,35 @@ async function findBaseShaForMainBranch(
 
   const sha = lastSuccessfulCommitResult.value;
   if (sha) {
-    core.debug(
+    infrastructure.logger.debug(
       `Last commit for which this workflow was successfully run found with SHA: ${sha}`
     );
     const properSha = await getProperBaseCommit(
+      infrastructure,
       sha,
       versionBumpCommitMessageSummaryMatcher
     );
-    core.debug(
+    infrastructure.logger.debug(
       `Actual base commit to be used for 'nx affected' will be: ${properSha}`
     );
 
     return { value: properSha };
   } else {
-    core.warning(
+    infrastructure.logger.warning(
       `WARNING: Unable to find a successful workflow run on 'origin/${mainBranchName}'`
     );
-    core.warning(
+    infrastructure.logger.warning(
       `We are therefore defaulting to use HEAD~1 on 'origin/${mainBranchName}'`
     );
 
-    const previousCommit = executeCommandAndReturnSimpleValue(
-      'git rev-parse HEAD~1'
-    );
+    const previousCommit =
+      await infrastructure.gitApi.getHeadPreviousCommitSha();
     return { value: previousCommit };
   }
 }
 
 async function findLastSuccessfulCommitSha(
+  infrastructure: Infrastructure,
   runId: number,
   owner: string,
   repo: string,
@@ -152,7 +167,7 @@ async function findLastSuccessfulCommitSha(
 ): Promise<ResultOrErrorMessage<string | undefined>> {
   try {
     const sha = await findSuccessfulCommit(
-      undefined,
+      infrastructure,
       runId,
       owner,
       repo,
@@ -161,7 +176,7 @@ async function findLastSuccessfulCommitSha(
 
     return { value: sha };
   } catch (error) {
-    core.error(error as Error);
+    infrastructure.logger.error(error as Error);
     const errorMessage: string =
       error instanceof Error ? error.message : `Unknown error`;
     return {
@@ -171,87 +186,40 @@ async function findLastSuccessfulCommitSha(
 }
 
 async function findSuccessfulCommit(
-  workflowId: string | undefined,
+  infrastructure: Infrastructure,
   runId: number,
   owner: string,
   repo: string,
   branch: string
 ): Promise<string | undefined> {
-  const octokit = new Octokit();
-  const finalWorkflowId = await getWorkflowId(
-    octokit,
-    workflowId,
+  const finalWorkflowId = await infrastructure.githubApi.getWorkflowId(
     runId,
     owner,
     repo,
     branch
   );
 
-  core.debug(`Workflow Id: ${finalWorkflowId}`);
+  infrastructure.logger.debug(`Workflow Id: ${finalWorkflowId}`);
 
-  // fetch all workflow runs on a given repo/branch/workflow with push and success
-  const runsResult = await octokit.request(
-    `GET /repos/${owner}/${repo}/actions/workflows/${finalWorkflowId}/runs`,
-    {
+  const workflowRunShas =
+    await infrastructure.githubApi.getWorkflowRunCommitShas(
+      finalWorkflowId,
       owner,
       repo,
-      branch,
-      workflow_id: finalWorkflowId,
-      event: 'push',
-      status: 'success',
-    }
-  );
+      branch
+    );
 
-  core.debug('Runs result:');
-  core.debug(JSON.stringify(runsResult));
-
-  const runs = runsResult.data.workflow_runs;
-  const shas = runs.map((r: { head_sha: string }) => r.head_sha);
-
-  return await findExistingCommit(shas);
-}
-
-async function getWorkflowId(
-  octokit: Octokit,
-  workflowId: string | undefined,
-  runId: number,
-  owner: string,
-  repo: string,
-  branch: string
-): Promise<string> {
-  if (workflowId) {
-    return workflowId;
-  }
-
-  const runResult = await octokit.request(
-    `GET /repos/${owner}/${repo}/actions/runs/${runId}`,
-    {
-      owner,
-      repo,
-      branch,
-      run_id: runId,
-    }
-  );
-
-  return runResult.data.workflow_id;
+  return await findExistingCommit(infrastructure, workflowRunShas);
 }
 
 async function findExistingCommit(
+  infrastructure: Infrastructure,
   shas: readonly string[]
 ): Promise<string | undefined> {
   for (const commitSha of shas) {
-    if (await commitExists(commitSha)) {
+    if (await infrastructure.gitApi.commitExists(commitSha)) {
       return commitSha;
     }
   }
   return undefined;
-}
-
-async function commitExists(commitSha: string): Promise<boolean> {
-  try {
-    execSync(`git cat-file -e ${commitSha} 2> /dev/null`);
-    return true;
-  } catch {
-    return false;
-  }
 }
